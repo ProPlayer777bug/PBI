@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Pure Terminal Text Installer (Zero Whiptail/GUI)
-#  Repository: ProPlayer777bug/PBI
+#  PBI - Pure Terminal Text Installer (Zero GUI)
+#  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
 REPO_USER="ProPlayer777bug"
@@ -24,7 +24,7 @@ if ! command -v blueprint &> /dev/null; then
     echo ""
 fi
 
-# Ensure jq exists to parse GitHub API JSON
+# Ensure jq exists
 if ! command -v jq &> /dev/null; then
     echo "⚙️  Installing required dependency (jq)..."
     if command -v apt-get &> /dev/null; then
@@ -38,11 +38,11 @@ fi
 echo "🔍 Fetching available blueprints from GitHub..."
 echo ""
 
-# Fetch list of .blueprint files directly from GitHub API
+# Fetch file list from GitHub API
 API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
 RESPONSE=$(curl -sSL "$API_URL")
 
-# Parse filenames into array
+# Extract blueprint filenames into array
 mapfile -t BLUEPRINTS < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
@@ -50,7 +50,7 @@ if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
     exit 1
 fi
 
-# Output plain terminal list
+# Print plain text menu
 echo "Select an option:"
 echo "----------------------------------------------"
 echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
@@ -61,10 +61,10 @@ done
 echo "----------------------------------------------"
 echo ""
 
-# Read number selection straight from the TTY (crucial for curl piped execution)
+# Read option directly from TTY
 read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE < /dev/tty
 
-# Validate input
+# Validate choice
 if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
     echo ""
     echo "❌ Invalid selection. Exiting."
@@ -102,7 +102,7 @@ download_and_install() {
     echo ""
 }
 
-# Execute installation logic
+# Run execution
 if [ "$CHOICE" -eq 0 ]; then
     echo ""
     echo "=============================================="

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Pterodactyl Blueprint CLI Installer
+#  PBI - Pure Terminal Blueprint Installer
 #  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
@@ -17,14 +17,14 @@ echo "       Pterodactyl Blueprint Installer        "
 echo "=============================================="
 echo ""
 
-# Check if Blueprint CLI exists on the system
+# Check for Blueprint CLI
 if ! command -v blueprint &> /dev/null; then
     echo "⚠️  WARNING: 'blueprint' CLI command is not installed on this system."
     echo "    Make sure you run this script on your Pterodactyl server."
     echo ""
 fi
 
-# Ensure required system dependencies are installed
+# Ensure jq exists to parse GitHub API
 if ! command -v jq &> /dev/null; then
     echo "⚙️  Installing required dependency (jq)..."
     if command -v apt-get &> /dev/null; then
@@ -38,11 +38,11 @@ fi
 echo "🔍 Fetching available blueprints from GitHub..."
 echo ""
 
-# Fetch list of .blueprint files directly from GitHub API
+# Fetch list of .blueprint files from GitHub API
 API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
 RESPONSE=$(curl -sSL "$API_URL")
 
-# Extract blueprint filenames into array
+# Extract blueprint filenames into an array
 mapfile -t BLUEPRINTS < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
@@ -50,7 +50,7 @@ if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
     exit 1
 fi
 
-# Print DevOps style menu options
+# Print DevOps style text menu
 echo "Select an option:"
 echo "----------------------------------------------"
 echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
@@ -61,17 +61,16 @@ done
 echo "----------------------------------------------"
 echo ""
 
-# Prompt for selection (works directly over curl piped to bash)
+# Forces reading user input directly from TTY (crucial for curl execution)
 read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE < /dev/tty
 
-# Input validation
+# Validate choice
 if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
     echo ""
-    echo "❌ Invalid selection. Please try again."
+    echo "❌ Invalid selection. Exiting."
     exit 1
 fi
 
-# Function to download from GitHub and execute installation
 download_and_install() {
     local file="$1"
     local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
@@ -84,7 +83,7 @@ download_and_install() {
     curl -sSL -o "$file" "$raw_url"
 
     if [ ! -s "$file" ]; then
-        echo "❌ Download failed or returned empty file for $file"
+        echo "❌ Download failed or file is empty for $file"
         rm -f "$file"
         return 1
     fi
@@ -103,7 +102,7 @@ download_and_install() {
     echo ""
 }
 
-# Option 0: Install ALL
+# Process Option
 if [ "$CHOICE" -eq 0 ]; then
     echo ""
     echo "=============================================="
@@ -116,8 +115,6 @@ if [ "$CHOICE" -eq 0 ]; then
     echo "=============================================="
     echo "✅ All blueprint installation tasks completed!"
     echo "=============================================="
-
-# Single Blueprint Option
 else
     SELECTED_FILE="${BLUEPRINTS[$((CHOICE - 1))]}"
     

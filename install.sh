@@ -78,7 +78,6 @@ fi
 download_and_install() {
     local file="$1"
     local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
-    local identifier="${file%.blueprint}"
 
     echo "----------------------------------------------"
     echo "📥 Downloading: $file"
@@ -94,15 +93,15 @@ download_and_install() {
         return 1
     fi
 
-    echo "🚀 Installing: $identifier"
+    echo "🚀 Installing: blueprint -install $file"
     echo "----------------------------------------------"
 
-    # Pass the clean identifier directly to blueprint -install
-    if yes | blueprint -install "$identifier"; then
-        echo "✅ Successfully installed: $identifier"
+    # Runs exact syntax: blueprint -install nebula.blueprint
+    if yes | blueprint -install "$file"; then
+        echo "✅ Successfully installed: $file"
         rm -f "$file"
     else
-        echo "❌ Installation failed for: $identifier"
+        echo "❌ Installation failed for: $file"
         rm -f "$file"
         return 1
     fi
@@ -126,7 +125,7 @@ else
     
     echo ""
     echo "=============================================="
-    echo " 🚀 Installing target: ${SELECTED_FILE%.blueprint}"
+    echo " 🚀 Installing target: $SELECTED_FILE"
     echo "=============================================="
     echo ""
 

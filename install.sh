@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Terminal Blueprint Installer
+#  PBI - Fixed Terminal Blueprint Installer
 #  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
@@ -9,7 +9,13 @@ REPO_USER="ProPlayer777bug"
 REPO_NAME="PBI"
 BRANCH="blueprints"
 
-cd "$(pwd)" || exit 1
+# Ensure script operates inside Pterodactyl root directory
+if [ -d "/var/www/pterodactyl" ]; then
+    cd /var/www/pterodactyl || exit 1
+else
+    cd "$(pwd)" || exit 1
+fi
+
 clear
 
 echo "=============================================="
@@ -20,11 +26,11 @@ echo ""
 # Check for Blueprint CLI
 if ! command -v blueprint &> /dev/null; then
     echo "⚠️  WARNING: 'blueprint' CLI command is not installed on this system."
-    echo "    Make sure you run this script in your Pterodactyl folder."
+    echo "    Make sure you run this script inside /var/www/pterodactyl."
     echo ""
 fi
 
-# Ensure jq exists to parse GitHub API JSON
+# Ensure jq exists
 if ! command -v jq &> /dev/null; then
     echo "⚙️  Installing required dependency (jq)..."
     if command -v apt-get &> /dev/null; then
@@ -50,7 +56,7 @@ if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
     exit 1
 fi
 
-# Output plain terminal list
+# Output terminal list
 echo "Select an option:"
 echo "----------------------------------------------"
 echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
@@ -61,10 +67,10 @@ done
 echo "----------------------------------------------"
 echo ""
 
-# Read input directly from terminal TTY
+# Read number selection directly from TTY
 read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE < /dev/tty
 
-# Validate input
+# Validate selection
 if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
     echo ""
     echo "❌ Invalid selection. Exiting."
@@ -73,41 +79,42 @@ fi
 
 download_and_install() {
     local file="$1"
+    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
     
-    # URL Encode filename to prevent broken download links
-    local encoded_file
-    encoded_file=$(jq -rr -n --arg file "$file" '$file | @uri')
-    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$encoded_file"
+    # Strip extension to pass clean identifier to blueprint (e.g., eggchanger)
+    local identifier="${file%.blueprint}"
 
     echo "----------------------------------------------"
     echo "📥 Downloading: $file"
     echo "----------------------------------------------"
 
+    # Download raw file
     curl -sSL -o "$file" "$raw_url"
 
-    # Check if download succeeded and file is not empty
+    # Verify download success
     if [ ! -s "$file" ]; then
-        echo "❌ Download failed! File is empty or 404 from GitHub."
+        echo "❌ Download failed! File is empty or 404 URL."
         rm -f "$file"
         return 1
     fi
 
-    echo "🚀 Installing: $file"
+    echo "🚀 Installing: $identifier"
     echo "----------------------------------------------"
 
-    # Pass the full filename ($file) to blueprint -install
-    if yes | blueprint -install "$file"; then
-        echo "✅ Successfully installed: $file"
+    # Blueprint CLI expects $file (eggchanger.blueprint) present in directory 
+    # while passing $identifier (eggchanger) to the install argument
+    if yes | blueprint -install "$identifier"; then
+        echo "✅ Successfully installed: $identifier"
         rm -f "$file"
     else
-        echo "❌ Installation failed for: $file"
+        echo "❌ Installation failed for: $identifier"
         rm -f "$file"
         return 1
     fi
     echo ""
 }
 
-# Execute installation logic
+# Process Option
 if [ "$CHOICE" -eq 0 ]; then
     echo ""
     echo "=============================================="
@@ -125,7 +132,7 @@ else
     
     echo ""
     echo "=============================================="
-    echo " 🚀 Installing target: $SELECTED_FILE"
+    echo " 🚀 Installing target: ${SELECTED_FILE%.blueprint}"
     echo "=============================================="
     echo ""
 

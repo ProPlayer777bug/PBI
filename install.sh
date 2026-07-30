@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Fixed Terminal Blueprint Installer
+#  PBI - Terminal Blueprint Installer
 #  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
@@ -9,7 +9,7 @@ REPO_USER="ProPlayer777bug"
 REPO_NAME="PBI"
 BRANCH="blueprints"
 
-# Force working directory to Pterodactyl root
+# Ensure script runs inside Pterodactyl root
 if [ -d "/var/www/pterodactyl" ]; then
     cd /var/www/pterodactyl || exit 1
 else
@@ -23,14 +23,14 @@ echo "       Pterodactyl Blueprint Installer        "
 echo "=============================================="
 echo ""
 
-# Verify Blueprint installation
+# Check for Blueprint CLI
 if ! command -v blueprint &> /dev/null; then
     echo "⚠️  WARNING: 'blueprint' CLI command is not installed on this system."
-    echo "    Please run this script inside /var/www/pterodactyl."
+    echo "    Make sure you run this script inside /var/www/pterodactyl."
     echo ""
 fi
 
-# Ensure dependencies exist
+# Ensure required dependencies exist
 if ! command -v jq &> /dev/null || ! command -v unzip &> /dev/null; then
     echo "⚙️  Installing required dependencies (jq, unzip)..."
     if command -v apt-get &> /dev/null; then
@@ -48,14 +48,15 @@ echo ""
 API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
 RESPONSE=$(curl -sSL -H "User-Agent: Mozilla/5.0" "$API_URL")
 
-# Store filenames in array
+# Parse filenames into array
 mapfile -t BLUEPRINTS < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
-    echo "❌ No .blueprint files found in '$REPO_USER/$REPO_NAME' ($BRANCH branch)!"
+    echo "❌ No .blueprint files found in repository '$REPO_USER/$REPO_NAME' on branch '$BRANCH'!"
     exit 1
 fi
 
+# Print menu
 echo "Select an option:"
 echo "----------------------------------------------"
 echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
@@ -76,23 +77,19 @@ fi
 
 download_and_install() {
     local file="$1"
+    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
     local identifier="${file%.blueprint}"
-    
-    # Properly URL-encode characters for curl
-    local encoded_file
-    encoded_file=$(echo "$file" | jq -sRr @uri | tr -d '\n')
-    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$encoded_file"
 
     echo "----------------------------------------------"
     echo "📥 Downloading: $file"
     echo "----------------------------------------------"
 
-    # Download raw file with -L to follow redirects
-    curl -sSL -H "User-Agent: Mozilla/5.0" -o "$file" "$raw_url"
+    # Download raw file following redirects (-L)
+    curl -sSL -H "User-Agent: Mozilla/5.0" -L -o "$file" "$raw_url"
 
-    # Verify download is a valid archive, not HTML error text
+    # Validate that the file is not empty AND is a valid zip archive
     if [ ! -s "$file" ] || ! unzip -t "$file" >/dev/null 2>&1; then
-        echo "❌ Download failed! $file is corrupted or 404 on GitHub."
+        echo "❌ Download failed! File is empty, corrupt, or missing on GitHub."
         rm -f "$file"
         return 1
     fi
@@ -100,7 +97,7 @@ download_and_install() {
     echo "🚀 Installing: $identifier"
     echo "----------------------------------------------"
 
-    # Run Blueprint installer with clean identifier
+    # Pass the clean identifier directly to blueprint -install
     if yes | blueprint -install "$identifier"; then
         echo "✅ Successfully installed: $identifier"
         rm -f "$file"
@@ -122,7 +119,7 @@ if [ "$CHOICE" -eq 0 ]; then
         download_and_install "$file"
     done
     echo "=============================================="
-    echo "✅ All blueprint tasks finished!"
+    echo "✅ All blueprint installation tasks completed!"
     echo "=============================================="
 else
     SELECTED_FILE="${BLUEPRINTS[$((CHOICE - 1))]}"

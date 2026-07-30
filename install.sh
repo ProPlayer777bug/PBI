@@ -1,62 +1,76 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Pterodactyl Blueprint Interactive GUI Installer
-#  Repository: https://github.com/ProPlayer777bug/PBI
+#  PBI - Automated Blueprint Installer
+#  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
-# Set working directory to where command is run
-WORKING_DIR="$(pwd)"
-cd "$WORKING_DIR" || exit 1
+REPO_USER="ProPlayer777bug"
+REPO_NAME="PBI"
+BRANCH="blueprints"
+
+# Set working directory to current path
+cd "$(pwd)" || exit 1
+
+clear
 
 # Check if Blueprint CLI is installed
 if ! command -v blueprint &> /dev/null; then
-    clear
     echo "❌ ERROR: 'blueprint' CLI command is not installed or not in PATH."
-    echo "Please install the Blueprint framework first."
     exit 1
 fi
 
-# Search for .blueprint files in current directory
-shopt -s nullglob
-BLUEPRINTS=( *.blueprint )
-
-if [ ${#BLUEPRINTS[@]} -eq 0 ]; then
-    clear
-    echo "=============================================="
-    echo "❌ No .blueprint files found in:"
-    echo "   $WORKING_DIR"
-    echo "=============================================="
-    echo "Please place your .blueprint files in this folder and run again."
-    exit 1
-fi
-
-# Ensure whiptail GUI utility is available
-if ! command -v whiptail &> /dev/null; then
-    echo "⚙️ Installing 'whiptail' menu tool..."
+# Ensure whiptail and jq are available
+if ! command -v whiptail &> /dev/null || ! command -v jq &> /dev/null; then
+    echo "⚙️ Installing required dependencies (whiptail, jq, curl)..."
     if command -v apt-get &> /dev/null; then
-        apt-get update -y && apt-get install -y whiptail
+        apt-get update -y && apt-get install -y whiptail jq curl
     elif command -v yum &> /dev/null; then
-        yum install -y newt
+        yum install -y newt jq curl
     fi
 fi
 
-# Build GUI Menu Options
-MENU_ITEMS=("0" "⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)")
+# Optional GitHub Token input for private repos
+TOKEN="${GITHUB_TOKEN:-}"
 
-for i in "${!BLUEPRINTS[@]}"; do
-    MENU_ITEMS+=("$((i + 1))" "${BLUEPRINTS[$i]}")
+# Prepare authorization header if token is provided
+AUTH_HEADER=()
+RAW_AUTH_HEADER=()
+if [ -n "$TOKEN" ]; then
+    AUTH_HEADER=(-H "Authorization: token $TOKEN")
+    RAW_AUTH_HEADER=(-H "Authorization: token $TOKEN")
+fi
+
+echo "🔍 Fetching available blueprint files from repository..."
+
+# Fetch file list from GitHub API
+API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
+RESPONSE=$(curl -sSL "${AUTH_HEADER[@]}" "$API_URL")
+
+# Extract all .blueprint files from API JSON response
+mapfile -t FILES < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
+
+if [ ${#FILES[@]} -eq 0 ]; then
+    clear
+    echo "❌ No .blueprint files found in repository '$REPO_USER/$REPO_NAME' on branch '$BRANCH'!"
+    exit 1
+fi
+
+# Build GUI Menu Options
+MENU_ITEMS=("0" "⚡ INSTALL ALL (${#FILES[@]} total)")
+
+for i in "${!FILES[@]}"; do
+    MENU_ITEMS+=("$((i + 1))" "${FILES[$i]}")
 done
 
-# Render Graphical Terminal Interface
+# Show Arrow-Key GUI Selection Menu
 CHOICE=$(whiptail --clear \
-    --backtitle "Pterodactyl PBI Installer" \
-    --title " Select Blueprint Package " \
-    --menu "Use UP/DOWN arrow keys to navigate and press ENTER to select:" 18 70 10 \
+    --backtitle "Pterodactyl Blueprint GUI Installer" \
+    --title " Select Blueprint to Download & Install " \
+    --menu "Use UP/DOWN arrows and press ENTER to select:" 18 70 10 \
     "${MENU_ITEMS[@]}" \
     3>&1 1>&2 2>&3)
 
-# Handle Cancellation
 if [ $? -ne 0 ]; then
     clear
     echo "Installation cancelled."
@@ -65,41 +79,52 @@ fi
 
 clear
 
-# Automated Installation Function
-execute_installation() {
-    local target_file="$1"
-    local blueprint_identifier
-    blueprint_identifier=$(basename "$target_file" .blueprint)
+# Function to download and run installation
+download_and_install() {
+    local filename="$1"
+    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$filename"
+    local blueprint_name="${filename%.blueprint}"
 
     echo "=============================================="
-    echo " 🚀 Auto-Installing: $blueprint_identifier"
+    echo " 📥 Downloading: $filename"
+    echo "=============================================="
+    
+    curl -sSL "${RAW_AUTH_HEADER[@]}" -o "$filename" "$raw_url"
+
+    if [ ! -s "$filename" ]; then
+        echo "❌ Failed to download $filename (File empty or 404)"
+        rm -f "$filename"
+        return 1
+    fi
+
+    echo ""
+    echo "=============================================="
+    echo " 🚀 Installing: $blueprint_name"
     echo "=============================================="
 
-    # Pipe 'yes' to bypass interactive confirmation prompts inside Blueprint CLI
-    if yes | blueprint -install "$blueprint_identifier"; then
-        echo ""
-        echo "✅ Successfully installed: $blueprint_identifier"
-        rm -f "$target_file"
+    if yes | blueprint -install "$blueprint_name"; then
+        echo "✅ Installed: $blueprint_name"
+        rm -f "$filename"
     else
-        echo ""
-        echo "❌ Failed to install: $blueprint_identifier"
-        exit 1
+        echo "❌ Installation failed for $blueprint_name"
+        rm -f "$filename"
+        return 1
     fi
     echo ""
 }
 
-# Run selection based on menu choice
+# Process User Choice
 if [ "$CHOICE" -eq 0 ]; then
-    echo "Starting batch installation of all detected blueprints..."
+    echo "🚀 Starting download and batch installation of all blueprints..."
     echo ""
-    for file in "${BLUEPRINTS[@]}"; do
-        execute_installation "$file"
+    for file in "${FILES[@]}"; do
+        download_and_install "$file"
     done
     echo "=============================================="
-    echo "✅ All blueprint packages installed successfully!"
+    echo "✅ All blueprints installed successfully!"
     echo "=============================================="
 else
-    SELECTED_INDEX=$((CHOICE - 1))
-    TARGET_FILE="${BLUEPRINTS[$SELECTED_INDEX]}"
-    execute_installation "$TARGET_FILE"
+    INDEX=$((CHOICE - 1))
+    TARGET_FILE="${FILES[$INDEX]}"
+    download_and_install "$TARGET_FILE"
 fi

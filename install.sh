@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Automated Blueprint Downloader & Installer
+#  PBI - Pterodactyl Blueprint CLI Installer
 #  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
@@ -12,107 +12,120 @@ BRANCH="blueprints"
 cd "$(pwd)" || exit 1
 clear
 
-# 1. Check if Blueprint CLI exists
+echo "=============================================="
+echo "       Pterodactyl Blueprint Installer        "
+echo "=============================================="
+echo ""
+
+# Check if Blueprint CLI exists on the system
 if ! command -v blueprint &> /dev/null; then
-    echo "❌ ERROR: 'blueprint' CLI command is not installed or not in PATH."
-    exit 1
+    echo "⚠️  WARNING: 'blueprint' CLI command is not installed on this system."
+    echo "    Make sure you run this script on your Pterodactyl server."
+    echo ""
 fi
 
-# 2. Install required system tools silently if missing
-if ! command -v whiptail &> /dev/null || ! command -v jq &> /dev/null; then
-    echo "⚙️ Installing required dependencies (whiptail, jq)..."
+# Ensure required system dependencies are installed
+if ! command -v jq &> /dev/null; then
+    echo "⚙️  Installing required dependency (jq)..."
     if command -v apt-get &> /dev/null; then
         apt-get update -y >/dev/null 2>&1
-        apt-get install -y whiptail jq curl >/dev/null 2>&1
+        apt-get install -y jq curl >/dev/null 2>&1
     elif command -v yum &> /dev/null; then
-        yum install -y newt jq curl >/dev/null 2>&1
+        yum install -y jq curl >/dev/null 2>&1
     fi
 fi
 
-echo "🔍 Fetching blueprint repository contents from GitHub..."
+echo "🔍 Fetching available blueprints from GitHub..."
+echo ""
 
-# 3. Fetch list of .blueprint files directly from GitHub's API
+# Fetch list of .blueprint files directly from GitHub API
 API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
 RESPONSE=$(curl -sSL "$API_URL")
 
-# Parse JSON response using jq to get file names
-mapfile -t FILES < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
+# Extract blueprint filenames into array
+mapfile -t BLUEPRINTS < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
 
-if [ ${#FILES[@]} -eq 0 ] || [ "${FILES[0]}" == "null" ]; then
-    clear
+if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
     echo "❌ No .blueprint files found in repository '$REPO_USER/$REPO_NAME' on branch '$BRANCH'!"
     exit 1
 fi
 
-# 4. Build GUI Menu Options
-MENU_ITEMS=("0" "⚡ INSTALL ALL (${#FILES[@]} total)")
-for i in "${!FILES[@]}"; do
-    MENU_ITEMS+=("$((i + 1))" "${FILES[$i]}")
+# Print DevOps style menu options
+echo "Select an option:"
+echo "----------------------------------------------"
+echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
+echo "----------------------------------------------"
+for i in "${!BLUEPRINTS[@]}"; do
+    printf " [%2d] %s\n" "$((i + 1))" "${BLUEPRINTS[$i]}"
 done
+echo "----------------------------------------------"
+echo ""
 
-# 5. Display Interactive Terminal Menu
-CHOICE=$(whiptail --clear \
-    --backtitle "Pterodactyl Blueprint GUI Installer" \
-    --title " Select Blueprint to Download & Install " \
-    --menu "Use UP/DOWN arrow keys and press ENTER to select:" 18 70 10 \
-    "${MENU_ITEMS[@]}" \
-    3>&1 1>&2 2>&3)
+# Prompt for selection (works directly over curl piped to bash)
+read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE < /dev/tty
 
-if [ $? -ne 0 ]; then
-    clear
-    echo "Installation cancelled."
-    exit 0
+# Input validation
+if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
+    echo ""
+    echo "❌ Invalid selection. Please try again."
+    exit 1
 fi
 
-clear
-
-# 6. Helper function to download from GitHub and install locally
+# Function to download from GitHub and execute installation
 download_and_install() {
-    local filename="$1"
-    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$filename"
-    local blueprint_name="${filename%.blueprint}"
+    local file="$1"
+    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
+    local name="${file%.blueprint}"
 
-    echo "=============================================="
-    echo " 📥 Downloading from GitHub: $filename"
-    echo "=============================================="
-    
-    curl -sSL -o "$filename" "$raw_url"
+    echo "----------------------------------------------"
+    echo "📥 Downloading: $file"
+    echo "----------------------------------------------"
 
-    if [ ! -s "$filename" ]; then
-        echo "❌ Download failed or returned empty file for $filename"
-        rm -f "$filename"
+    curl -sSL -o "$file" "$raw_url"
+
+    if [ ! -s "$file" ]; then
+        echo "❌ Download failed or returned empty file for $file"
+        rm -f "$file"
         return 1
     fi
 
-    echo ""
-    echo "=============================================="
-    echo " 🚀 Auto-Installing: $blueprint_name"
-    echo "=============================================="
+    echo "🚀 Installing: $name"
+    echo "----------------------------------------------"
 
-    # Auto-answer prompts with yes
-    if yes | blueprint -install "$blueprint_name"; then
-        echo "✅ Successfully installed: $blueprint_name"
-        rm -f "$filename"
+    if yes | blueprint -install "$name"; then
+        echo "✅ Successfully installed: $name"
+        rm -f "$file"
     else
-        echo "❌ Installation failed for $blueprint_name"
-        rm -f "$filename"
+        echo "❌ Installation failed for: $name"
+        rm -f "$file"
         return 1
     fi
     echo ""
 }
 
-# 7. Run selection logic
+# Option 0: Install ALL
 if [ "$CHOICE" -eq 0 ]; then
-    echo "🚀 Starting batch download & installation..."
     echo ""
-    for file in "${FILES[@]}"; do
+    echo "=============================================="
+    echo " 🚀 Starting batch installation of ALL blueprints..."
+    echo "=============================================="
+    echo ""
+    for file in "${BLUEPRINTS[@]}"; do
         download_and_install "$file"
     done
     echo "=============================================="
-    echo "✅ All blueprints downloaded & installed successfully!"
+    echo "✅ All blueprint installation tasks completed!"
     echo "=============================================="
+
+# Single Blueprint Option
 else
-    INDEX=$((CHOICE - 1))
-    TARGET_FILE="${FILES[$INDEX]}"
-    download_and_install "$TARGET_FILE"
+    SELECTED_FILE="${BLUEPRINTS[$((CHOICE - 1))]}"
+    
+    echo ""
+    echo "=============================================="
+    echo " 🚀 Installing target: ${SELECTED_FILE%.blueprint}"
+    echo "=============================================="
+    echo ""
+
+    download_and_install "$SELECTED_FILE"
 fi

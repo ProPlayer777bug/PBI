@@ -9,7 +9,7 @@ REPO_USER="ProPlayer777bug"
 REPO_NAME="PBI"
 BRANCH="blueprints"
 
-# Ensure script operates inside Pterodactyl root directory
+# Ensure we are operating inside Pterodactyl root
 if [ -d "/var/www/pterodactyl" ]; then
     cd /var/www/pterodactyl || exit 1
 else
@@ -30,14 +30,14 @@ if ! command -v blueprint &> /dev/null; then
     echo ""
 fi
 
-# Ensure jq exists
-if ! command -v jq &> /dev/null; then
-    echo "⚙️  Installing required dependency (jq)..."
+# Ensure required dependencies exist
+if ! command -v jq &> /dev/null || ! command -v unzip &> /dev/null; then
+    echo "⚙️  Installing required dependencies (jq, unzip)..."
     if command -v apt-get &> /dev/null; then
         apt-get update -y >/dev/null 2>&1
-        apt-get install -y jq curl >/dev/null 2>&1
+        apt-get install -y jq unzip curl >/dev/null 2>&1
     elif command -v yum &> /dev/null; then
-        yum install -y jq curl >/dev/null 2>&1
+        yum install -y jq unzip curl >/dev/null 2>&1
     fi
 fi
 
@@ -46,7 +46,7 @@ echo ""
 
 # Fetch list of .blueprint files from GitHub API
 API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
-RESPONSE=$(curl -sSL "$API_URL")
+RESPONSE=$(curl -sSL -H "User-Agent: Mozilla/5.0" "$API_URL")
 
 # Parse filenames into array
 mapfile -t BLUEPRINTS < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
@@ -80,20 +80,18 @@ fi
 download_and_install() {
     local file="$1"
     local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
-    
-    # Strip extension to pass clean identifier to blueprint (e.g., eggchanger)
     local identifier="${file%.blueprint}"
 
     echo "----------------------------------------------"
     echo "📥 Downloading: $file"
     echo "----------------------------------------------"
 
-    # Download raw file
-    curl -sSL -o "$file" "$raw_url"
+    # Download raw file with -L (follow redirects) and custom user agent
+    curl -sSL -H "User-Agent: Mozilla/5.0" -o "$file" "$raw_url"
 
-    # Verify download success
-    if [ ! -s "$file" ]; then
-        echo "❌ Download failed! File is empty or 404 URL."
+    # Validate that downloaded file is NOT empty and IS a valid ZIP archive
+    if [ ! -s "$file" ] || ! unzip -t "$file" >/dev/null 2>&1; then
+        echo "❌ Download failed! File is corrupted, empty, or returned 404 HTML from GitHub."
         rm -f "$file"
         return 1
     fi
@@ -101,8 +99,7 @@ download_and_install() {
     echo "🚀 Installing: $identifier"
     echo "----------------------------------------------"
 
-    # Blueprint CLI expects $file (eggchanger.blueprint) present in directory 
-    # while passing $identifier (eggchanger) to the install argument
+    # Run installation
     if yes | blueprint -install "$identifier"; then
         echo "✅ Successfully installed: $identifier"
         rm -f "$file"

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =========================================================
-#  PBI - Pure Terminal Text Installer (Zero GUI)
+#  PBI - Terminal Blueprint Installer
 #  Repository: ProPlayer777bug/PBI (Branch: blueprints)
 # =========================================================
 
@@ -20,11 +20,11 @@ echo ""
 # Check for Blueprint CLI
 if ! command -v blueprint &> /dev/null; then
     echo "⚠️  WARNING: 'blueprint' CLI command is not installed on this system."
-    echo "    Make sure you run this script on your Pterodactyl server."
+    echo "    Make sure you run this script in your Pterodactyl folder."
     echo ""
 fi
 
-# Ensure jq exists
+# Ensure jq exists to parse GitHub API JSON
 if ! command -v jq &> /dev/null; then
     echo "⚙️  Installing required dependency (jq)..."
     if command -v apt-get &> /dev/null; then
@@ -38,11 +38,11 @@ fi
 echo "🔍 Fetching available blueprints from GitHub..."
 echo ""
 
-# Fetch file list from GitHub API
+# Fetch list of .blueprint files from GitHub API
 API_URL="https://api.github.com/repos/$REPO_USER/$REPO_NAME/contents?ref=$BRANCH"
 RESPONSE=$(curl -sSL "$API_URL")
 
-# Extract blueprint filenames into array
+# Parse filenames into array
 mapfile -t BLUEPRINTS < <(echo "$RESPONSE" | jq -r '.[] | select(.name | endswith(".blueprint")) | .name')
 
 if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
@@ -50,7 +50,7 @@ if [ ${#BLUEPRINTS[@]} -eq 0 ] || [ "${BLUEPRINTS[0]}" == "null" ]; then
     exit 1
 fi
 
-# Print plain text menu
+# Output plain terminal list
 echo "Select an option:"
 echo "----------------------------------------------"
 echo " [ 0] ⚡ INSTALL ALL BLUEPRINTS (${#BLUEPRINTS[@]} total)"
@@ -61,10 +61,10 @@ done
 echo "----------------------------------------------"
 echo ""
 
-# Read option directly from TTY
+# Read input directly from terminal TTY
 read -p "Enter selection (0-${#BLUEPRINTS[@]}): " CHOICE < /dev/tty
 
-# Validate choice
+# Validate input
 if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || [ "$CHOICE" -lt 0 ] || [ "$CHOICE" -gt "${#BLUEPRINTS[@]}" ]; then
     echo ""
     echo "❌ Invalid selection. Exiting."
@@ -73,8 +73,11 @@ fi
 
 download_and_install() {
     local file="$1"
-    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$file"
-    local name="${file%.blueprint}"
+    
+    # URL Encode filename to prevent broken download links
+    local encoded_file
+    encoded_file=$(jq -rr -n --arg file "$file" '$file | @uri')
+    local raw_url="https://raw.githubusercontent.com/$REPO_USER/$REPO_NAME/$BRANCH/$encoded_file"
 
     echo "----------------------------------------------"
     echo "📥 Downloading: $file"
@@ -82,27 +85,29 @@ download_and_install() {
 
     curl -sSL -o "$file" "$raw_url"
 
+    # Check if download succeeded and file is not empty
     if [ ! -s "$file" ]; then
-        echo "❌ Download failed or file is empty for $file"
+        echo "❌ Download failed! File is empty or 404 from GitHub."
         rm -f "$file"
         return 1
     fi
 
-    echo "🚀 Installing: $name"
+    echo "🚀 Installing: $file"
     echo "----------------------------------------------"
 
-    if yes | blueprint -install "$name"; then
-        echo "✅ Successfully installed: $name"
+    # Pass the full filename ($file) to blueprint -install
+    if yes | blueprint -install "$file"; then
+        echo "✅ Successfully installed: $file"
         rm -f "$file"
     else
-        echo "❌ Installation failed for: $name"
+        echo "❌ Installation failed for: $file"
         rm -f "$file"
         return 1
     fi
     echo ""
 }
 
-# Run execution
+# Execute installation logic
 if [ "$CHOICE" -eq 0 ]; then
     echo ""
     echo "=============================================="
@@ -120,7 +125,7 @@ else
     
     echo ""
     echo "=============================================="
-    echo " 🚀 Installing target: ${SELECTED_FILE%.blueprint}"
+    echo " 🚀 Installing target: $SELECTED_FILE"
     echo "=============================================="
     echo ""
 
